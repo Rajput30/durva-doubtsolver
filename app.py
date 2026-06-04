@@ -13,6 +13,7 @@ TOKEN = os.environ.get("TELEGRAM_TOKEN")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 SPACE_HOST = "durva-doubtsolver.onrender.com"
 TELEGRAM_API = f"https://api.telegram.org/bot{TOKEN}"
+ALLOWED_GROUP_ID = -1003946747894
 
 client = Groq(api_key=GROQ_API_KEY)
 logging.info("Groq client ready!")
@@ -67,8 +68,14 @@ def webhook():
         message = data["message"]
         chat_id = message["chat"]["id"]
         text = message.get("text", "")
+
+        # Sirf allowed group mein kaam karega
+        if chat_id != ALLOWED_GROUP_ID:
+            logging.info(f"Unauthorized chat_id: {chat_id} — ignore kiya")
+            return "ok", 200
+
         if text == "/start":
-            threading.Thread(target=send_message, args=(chat_id, "Hello Shlok bhai! Main hoon tumhara Durva Doubtsolver Bot. Apne doubts pucho, main solve kar dunga! 🚀")).start()
+            threading.Thread(target=send_message, args=(chat_id, "Hello! Main hoon tumhara Durva Doubtsolver Bot. Apne doubts pucho, main solve kar dunga! 🚀")).start()
             return "ok", 200
         threading.Thread(target=process_message, args=(chat_id, text)).start()
     except Exception as e:
