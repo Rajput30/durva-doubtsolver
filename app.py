@@ -29,8 +29,8 @@ LANGUAGE RULES:
 - Agar student ne kaha "hinglish mein samjao" ya "hindi mein" — toh Hinglish mein jawab de
 - Agar student ne kaha "explain in english" — toh English mein jawab de
 - Agar student ne kuch nahi kaha — toh question ki language dekh ke jawab de
-- Scientific terms hamesha English mein rakho — jaise Mole Fraction, Vapor Pressure, Newton's Law, etc.
-- Hinglish matlab: Hindi + English mix — jaise "Pehle hum moles calculate karenge, jo ki mass divided by molar mass hota hai"
+- Scientific terms hamesha English mein rakho
+- Hinglish matlab: Hindi + English mix — jaise "Pehle hum moles calculate karenge"
 
 LENGTH RULES:
 - Maximum 8-10 steps, har step 1-2 lines ka
@@ -121,14 +121,20 @@ def process_message(chat_id, text):
         logging.error(f"Groq Error: {e}")
         send_message(chat_id, f"Error: {str(e)[:100]}")
 
-def process_image(chat_id, file_id, caption):
+def process_image(chat_id, file_id, instruction):
     try:
         file_info = requests.get(f"{TELEGRAM_API}/getFile?file_id={file_id}", timeout=10).json()
         file_path = file_info["result"]["file_path"]
         file_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_path}"
         img_response = requests.get(file_url, timeout=30)
         img_base64 = base64.b64encode(img_response.content).decode("utf-8")
-        prompt = caption if caption else "Is image mein jo question hai usse solve karo step by step, short mein"
+
+        # Instruction ke saath image solve karo
+        if instruction:
+            prompt = f"Is image mein jo question hai usse solve karo. Student ki instruction: {instruction}"
+        else:
+            prompt = "Is image mein jo question hai usse step by step solve karo"
+
         chat_completion = client.chat.completions.create(
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
@@ -146,7 +152,7 @@ def process_image(chat_id, file_id, caption):
         send_message(chat_id, reply)
     except Exception as e:
         logging.error(f"Image Error: {e}")
-        send_message(chat_id, "Image solve nahi ho paya, text mein likho!")
+        send_message(chat_id, "Image solve nahi ho paya, dobara try karo!")
 
 def set_webhook():
     try:
@@ -188,12 +194,11 @@ def webhook():
         if photo:
             caption_lower = caption.lower()
             if bot_tag in caption_lower:
-                clean_caption = re.sub(re.escape(bot_tag), '', caption, flags=re.IGNORECASE).strip()
-                if not clean_caption or clean_caption.lower() in ["solve", "karo", "help", "batao"]:
-                    replied_text = get_replied_message_text(message)
-                    clean_caption = replied_text if replied_text else "Is image mein jo question hai solve karo"
+                # Bot tag hata ke instruction nikalo
+                instruction = re.sub(re.escape(bot_tag), '', caption, flags=re.IGNORECASE).strip()
                 file_id = photo[-1]["file_id"]
-                threading.Thread(target=process_image, args=(chat_id, file_id, clean_caption)).start()
+                # Image ko directly solve karo — instruction ke saath ya bina
+                threading.Thread(target=process_image, args=(chat_id, file_id, instruction)).start()
             return "ok", 200
 
         # Text wala case
@@ -202,14 +207,14 @@ def webhook():
             clean_text = re.sub(re.escape(bot_tag), '', text, flags=re.IGNORECASE).strip()
 
             # Agar sirf "solve" ya "karo" likha hai toh replied message ka question lo
-            if not clean_text or clean_text.lower() in ["solve", "karo", "help", "explain", "batao", "hinglish mein", "hindi mein"]:
+            simple_commands = ["solve", "karo", "help", "explain", "batao", "hinglish mein", "hindi mein", "solve karo"]
+            if not clean_text or clean_text.lower() in simple_commands:
                 replied_text = get_replied_message_text(message)
                 if replied_text:
-                    # Student ki instruction bhi add karo
                     instruction = clean_text if clean_text else ""
-                    clean_text = f"{replied_text}\n\n{instruction}".strip()
+                    clean_text = f"{replied_text}\n\nInstruction: {instruction}".strip() if instruction else replied_text
                 else:
-                    send_message(chat_id, "Bhai koi question toh likho ya reply karke @Durva_mentor_bot solve likho!")
+                    send_message(chat_id, "Bhai koi question toh likho ya kisi question pe reply karke @Durva_mentor_bot solve karo!")
                     return "ok", 200
 
             threading.Thread(target=process_message, args=(chat_id, clean_text)).start()
