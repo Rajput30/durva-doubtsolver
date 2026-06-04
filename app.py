@@ -23,42 +23,46 @@ logging.info("Groq client ready!")
 
 app = Flask(__name__)
 
-SYSTEM_PROMPT = """Tu ek expert JEE aur NEET doubt solver bot hai.
+SYSTEM_PROMPT = """Tu ek expert JEE aur NEET doubt solver bot hai jo 12th ke students ki help karta hai.
 
-FORMATTING — YE BILKUL MAT USE KARNA:
+LANGUAGE RULES:
+- Agar student ne kaha "hinglish mein samjao" ya "hindi mein" — toh Hinglish mein jawab de
+- Agar student ne kaha "explain in english" — toh English mein jawab de
+- Agar student ne kuch nahi kaha — toh question ki language dekh ke jawab de
+- Scientific terms hamesha English mein rakho — jaise Mole Fraction, Vapor Pressure, Newton's Law, etc.
+- Hinglish matlab: Hindi + English mix — jaise "Pehle hum moles calculate karenge, jo ki mass divided by molar mass hota hai"
+
+LENGTH RULES:
+- Maximum 8-10 steps, har step 1-2 lines ka
+- Seedha point pe aao, bakwaas mat likho
+- Short aur clear rakho
+
+FORMATTING RULES — YE BILKUL MAT USE KARNA:
 - Koi ## headers nahi
 - Koi $ signs nahi
-- Koi \\frac, \\theta, \\sin, \\cos, \\tan, \\boxed, \\left, \\right nahi
-- Koi * ** _ ` ~ nahi
+- Koi \\frac \\theta \\sin \\cos \\tan \\boxed nahi
+- Koi * ** _ nahi
 - Koi LaTeX nahi, koi Markdown nahi
 
 FORMATTING — HAMESHA AISA LIKHO:
-- Powers: x², x³, H₂O, CO₂ (unicode superscript)
-- Fractions: (qE/mg) ya qE÷mg
+- Powers: x², H₂O, CO₂
+- Fractions: (108/144) ya 108÷144
 - Multiplication: ×
-- Theta: θ, Alpha: α, Beta: β, Pi: π, Delta: Δ
-- Sin: sin(θ), Cos: cos(θ), Tan: tan(θ)
-- Inverse tan: tan⁻¹(qE/mg)
-- Steps: 1. 2. 3. numbered karo
-- Plain simple text jo mobile pe clearly padha ja sake
+- Greek letters: θ α β π Δ ω λ μ
+- Trig: sin(θ), cos(θ), tan(θ), tan⁻¹
+- Steps: 1. 2. 3.
 
-CONTENT RULES:
-- Sirf tab reply kar jab mention kiya jaye ya image aaye
-- Hindi mein pucha toh Hindi, English mein pucha toh English
-- Scientific terms hamesha English mein
-- JEE aur NEET level — Physics, Chemistry, Biology, Math
-- Step by step solve karo
-- Har step mein formula likho, phir values daalo
-- Final answer clearly likho
-- Calculation double check karo"""
+ACCURACY:
+- Pehle soch ke solve karo
+- Formula likho, values daalo, calculate karo
+- Final answer clearly likho: "Answer: 0.75" """
 
 def clean_response(text):
-    # LaTeX remove karo
     text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
     text = re.sub(r'\$\$.*?\$\$', '', text, flags=re.DOTALL)
     text = re.sub(r'\$.*?\$', '', text)
     text = re.sub(r'\\frac\{(.*?)\}\{(.*?)\}', r'(\1/\2)', text)
-    text = re.sub(r'\\boxed\{(.*?)\}', r'\1', text)
+    text = re.sub(r'\\boxed\{(.*?)\}', r'Answer: \1', text)
     text = re.sub(r'\\left\(', '(', text)
     text = re.sub(r'\\right\)', ')', text)
     text = re.sub(r'\\tan\^?\{?-1\}?', 'tan⁻¹', text)
@@ -70,7 +74,6 @@ def clean_response(text):
     text = re.sub(r'\\beta', 'β', text)
     text = re.sub(r'\\pi', 'π', text)
     text = re.sub(r'\\Delta', 'Δ', text)
-    text = re.sub(r'\\delta', 'δ', text)
     text = re.sub(r'\\omega', 'ω', text)
     text = re.sub(r'\\lambda', 'λ', text)
     text = re.sub(r'\\mu', 'μ', text)
@@ -79,10 +82,8 @@ def clean_response(text):
     text = re.sub(r'\\pm', '±', text)
     text = re.sub(r'\\times', '×', text)
     text = re.sub(r'\\div', '÷', text)
-    text = re.sub(r'\\cdot', '·', text)
     text = re.sub(r'\\sqrt\{(.*?)\}', r'√(\1)', text)
     text = re.sub(r'\^\{(.*?)\}', r'^\1', text)
-    text = re.sub(r'_\{(.*?)\}', r'_\1', text)
     text = re.sub(r'#{1,6}\s', '', text)
     text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
     text = re.sub(r'\*(.*?)\*', r'\1', text)
@@ -99,6 +100,12 @@ def send_message(chat_id, text):
         except Exception as e:
             logging.warning(f"Send attempt {attempt+1} failed: {e}")
 
+def get_replied_message_text(message):
+    replied = message.get("reply_to_message", None)
+    if replied:
+        return replied.get("text", "") or replied.get("caption", "")
+    return ""
+
 def process_message(chat_id, text):
     try:
         chat_completion = client.chat.completions.create(
@@ -106,7 +113,7 @@ def process_message(chat_id, text):
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": text}
             ],
-            model="deepseek-r1-distill-llama-70b",
+            model="llama-3.3-70b-versatile",
         )
         reply = clean_response(chat_completion.choices[0].message.content)
         send_message(chat_id, reply)
@@ -121,7 +128,7 @@ def process_image(chat_id, file_id, caption):
         file_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_path}"
         img_response = requests.get(file_url, timeout=30)
         img_base64 = base64.b64encode(img_response.content).decode("utf-8")
-        prompt = caption if caption else "Is image mein jo question hai usse solve karo step by step"
+        prompt = caption if caption else "Is image mein jo question hai usse solve karo step by step, short mein"
         chat_completion = client.chat.completions.create(
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
@@ -165,24 +172,48 @@ def webhook():
         data = request.get_json()
         if "message" not in data:
             return "ok", 200
+
         message = data["message"]
         chat_id = message["chat"]["id"]
+
         if chat_id != ALLOWED_GROUP_ID:
             return "ok", 200
+
         text = message.get("text", "")
         caption = message.get("caption", "")
         photo = message.get("photo", None)
+        bot_tag = f"@{BOT_USERNAME}".lower()
+
+        # Image wala case
         if photo:
-            mention_in_caption = f"@{BOT_USERNAME}" in caption
-            if mention_in_caption or not caption:
-                clean_caption = caption.replace(f"@{BOT_USERNAME}", "").strip()
+            caption_lower = caption.lower()
+            if bot_tag in caption_lower:
+                clean_caption = re.sub(re.escape(bot_tag), '', caption, flags=re.IGNORECASE).strip()
+                if not clean_caption or clean_caption.lower() in ["solve", "karo", "help", "batao"]:
+                    replied_text = get_replied_message_text(message)
+                    clean_caption = replied_text if replied_text else "Is image mein jo question hai solve karo"
                 file_id = photo[-1]["file_id"]
                 threading.Thread(target=process_image, args=(chat_id, file_id, clean_caption)).start()
             return "ok", 200
-        if f"@{BOT_USERNAME}" in text:
-            clean_text = text.replace(f"@{BOT_USERNAME}", "").strip()
-            if clean_text:
-                threading.Thread(target=process_message, args=(chat_id, clean_text)).start()
+
+        # Text wala case
+        text_lower = text.lower()
+        if bot_tag in text_lower:
+            clean_text = re.sub(re.escape(bot_tag), '', text, flags=re.IGNORECASE).strip()
+
+            # Agar sirf "solve" ya "karo" likha hai toh replied message ka question lo
+            if not clean_text or clean_text.lower() in ["solve", "karo", "help", "explain", "batao", "hinglish mein", "hindi mein"]:
+                replied_text = get_replied_message_text(message)
+                if replied_text:
+                    # Student ki instruction bhi add karo
+                    instruction = clean_text if clean_text else ""
+                    clean_text = f"{replied_text}\n\n{instruction}".strip()
+                else:
+                    send_message(chat_id, "Bhai koi question toh likho ya reply karke @Durva_mentor_bot solve likho!")
+                    return "ok", 200
+
+            threading.Thread(target=process_message, args=(chat_id, clean_text)).start()
+
     except Exception as e:
         logging.error(f"Webhook error: {e}")
     return "ok", 200
