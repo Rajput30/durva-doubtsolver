@@ -123,13 +123,13 @@ def process_message(chat_id, text):
 
 def process_image(chat_id, file_id, instruction):
     try:
+        logging.info(f"Image processing start — instruction: {instruction}")
         file_info = requests.get(f"{TELEGRAM_API}/getFile?file_id={file_id}", timeout=10).json()
         file_path = file_info["result"]["file_path"]
         file_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_path}"
         img_response = requests.get(file_url, timeout=30)
         img_base64 = base64.b64encode(img_response.content).decode("utf-8")
 
-        # Instruction ke saath image solve karo
         if instruction:
             prompt = f"Is image mein jo question hai usse solve karo. Student ki instruction: {instruction}"
         else:
@@ -149,6 +149,7 @@ def process_image(chat_id, file_id, instruction):
             model="meta-llama/llama-4-scout-17b-16e-instruct",
         )
         reply = clean_response(chat_completion.choices[0].message.content)
+        logging.info("Image processed successfully!")
         send_message(chat_id, reply)
     except Exception as e:
         logging.error(f"Image Error: {e}")
@@ -188,35 +189,32 @@ def webhook():
         text = message.get("text", "")
         caption = message.get("caption", "")
         photo = message.get("photo", None)
-        bot_tag = f"@{BOT_USERNAME}".lower()
+        bot_tag = f"@{BOT_USERNAME}"
 
         # Image wala case
         if photo:
-            caption_lower = caption.lower()
-            if bot_tag in caption_lower:
-                # Bot tag hata ke instruction nikalo
+            logging.info(f"Photo received — caption: {caption}")
+            if bot_tag.lower() in caption.lower():
                 instruction = re.sub(re.escape(bot_tag), '', caption, flags=re.IGNORECASE).strip()
+                logging.info(f"Bot tagged in image — instruction: {instruction}")
                 file_id = photo[-1]["file_id"]
-                # Image ko directly solve karo — instruction ke saath ya bina
                 threading.Thread(target=process_image, args=(chat_id, file_id, instruction)).start()
+            else:
+                logging.info("Photo received but bot not tagged — ignoring")
             return "ok", 200
 
         # Text wala case
-        text_lower = text.lower()
-        if bot_tag in text_lower:
+        if bot_tag.lower() in text.lower():
             clean_text = re.sub(re.escape(bot_tag), '', text, flags=re.IGNORECASE).strip()
-
-            # Agar sirf "solve" ya "karo" likha hai toh replied message ka question lo
-            simple_commands = ["solve", "karo", "help", "explain", "batao", "hinglish mein", "hindi mein", "solve karo"]
+            simple_commands = ["solve", "karo", "help", "explain", "batao", "solve karo"]
             if not clean_text or clean_text.lower() in simple_commands:
                 replied_text = get_replied_message_text(message)
                 if replied_text:
                     instruction = clean_text if clean_text else ""
-                    clean_text = f"{replied_text}\n\nInstruction: {instruction}".strip() if instruction else replied_text
+                    clean_text = f"{replied_text}\nInstruction: {instruction}".strip() if instruction else replied_text
                 else:
                     send_message(chat_id, "Bhai koi question toh likho ya kisi question pe reply karke @Durva_mentor_bot solve karo!")
                     return "ok", 200
-
             threading.Thread(target=process_message, args=(chat_id, clean_text)).start()
 
     except Exception as e:
