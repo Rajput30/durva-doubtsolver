@@ -16,20 +16,13 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 # ============ CONFIG ============
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
-WOLFRAM_APP_ID = os.environ.get("WOLFRAM_APP_ID")
 
-GEMINI_KEYS = [
-    os.environ.get("GEMINI_KEY_1"),
-    os.environ.get("GEMINI_KEY_2"),
-    os.environ.get("GEMINI_KEY_3"),
-    os.environ.get("GEMINI_KEY_4"),
-    os.environ.get("GEMINI_KEY_5"),
-    os.environ.get("GEMINI_KEY_6"),
-    os.environ.get("GEMINI_KEY_7"),
-    os.environ.get("GEMINI_KEY_8"),
-    os.environ.get("GEMINI_KEY_9"),
-    os.environ.get("GEMINI_KEY_10"),
-]
+# 8 Wolfram Keys ko ek list me load karna
+WOLFRAM_KEYS = [os.environ.get(f"WOLFRAM_APPID{i}") for i in range(1, 9) if os.environ.get(f"WOLFRAM_APPID{i}")]
+if not WOLFRAM_KEYS and os.environ.get("WOLFRAM_APP_ID"): # Backup agar purana variable ho
+    WOLFRAM_KEYS.append(os.environ.get("WOLFRAM_APP_ID"))
+
+GEMINI_KEYS = [os.environ.get(f"GEMINI_KEY_{i}") for i in range(1, 11) if os.environ.get(f"GEMINI_KEY_{i}")]
 
 SPACE_HOST = os.environ.get("RENDER_HOST", "durva-doubtsolver.onrender.com")
 TELEGRAM_API = f"https://api.telegram.org/bot{TOKEN}"
@@ -39,6 +32,24 @@ BOT_USERNAME = "Durva_mentor_bot"
 client = Groq(api_key=GROQ_API_KEY)
 app = Flask(__name__)
 
+# ============ WOLFRAM KEY ROTATOR ============
+wolfram_key_index = 0
+wolfram_lock = threading.Lock()
+
+def get_wolfram_key():
+    global wolfram_key_index
+    with wolfram_lock:
+        if not WOLFRAM_KEYS:
+            return None
+        return WOLFRAM_KEYS[wolfram_key_index % len(WOLFRAM_KEYS)]
+
+def rotate_wolfram_key():
+    global wolfram_key_index
+    with wolfram_lock:
+        if WOLFRAM_KEYS:
+            wolfram_key_index = (wolfram_key_index + 1) % len(WOLFRAM_KEYS)
+            logging.info(f"Wolfram key rotated to index {wolfram_key_index}")
+
 # ============ GEMINI KEY ROTATOR ============
 gemini_key_index = 0
 gemini_lock = threading.Lock()
@@ -46,18 +57,16 @@ gemini_lock = threading.Lock()
 def get_gemini_key():
     global gemini_key_index
     with gemini_lock:
-        keys = [k for k in GEMINI_KEYS if k]
-        if not keys:
+        if not GEMINI_KEYS:
             return None
-        key = keys[gemini_key_index % len(keys)]
-        return key
+        return GEMINI_KEYS[gemini_key_index % len(GEMINI_KEYS)]
 
 def rotate_gemini_key():
     global gemini_key_index
     with gemini_lock:
-        keys = [k for k in GEMINI_KEYS if k]
-        gemini_key_index = (gemini_key_index + 1) % len(keys)
-        logging.info(f"Gemini key rotated to index {gemini_key_index}")
+        if GEMINI_KEYS:
+            gemini_key_index = (gemini_key_index + 1) % len(GEMINI_KEYS)
+            logging.info(f"Gemini key rotated to index {gemini_key_index}")
 
 # ============ SYSTEM PROMPT ============
 SYSTEM_PROMPT = """Tu ek expert JEE aur NEET doubt solver bot hai jo 11th-12th ke students ki help karta hai.
@@ -105,37 +114,31 @@ ACCURACY:
 # ============ SUBJECT DETECTOR ============
 def detect_subject(text):
     text_lower = text.lower()
-
     math_keywords = ['integrate', 'differentiate', 'derivative', 'integral', 'matrix', 'determinant',
                      'limit', 'solve', 'equation', 'polynomial', 'trigonometry', 'sin', 'cos', 'tan',
                      'algebra', 'calculus', 'vector', 'probability', 'permutation', 'combination',
                      'binomial', 'sequence', 'series', 'parabola', 'ellipse', 'hyperbola', 'circle']
-
     physics_keywords = ['force', 'velocity', 'acceleration', 'current', 'voltage', 'resistance',
                         'energy', 'power', 'momentum', 'torque', 'frequency', 'wavelength',
                         'electric', 'magnetic', 'circuit', 'lens', 'mirror', 'refraction',
                         'gravity', 'newton', 'ohm', 'capacitor', 'inductor', 'photon', 'electron',
                         'nuclear', 'motion', 'wave', 'optics', 'thermodynamics', 'pressure']
-
     chemistry_keywords = ['mole', 'molarity', 'reaction', 'bond', 'organic', 'inorganic',
                           'element', 'compound', 'acid', 'base', 'salt', 'oxidation', 'reduction',
                           'electron', 'proton', 'neutron', 'atomic', 'molecule', 'polymer',
                           'hybridization', 'isomer', 'alkane', 'alkene', 'alkyne', 'benzene',
                           'equilibrium', 'ph', 'buffer', 'titration', 'enthalpy', 'entropy']
-
     biology_keywords = ['cell', 'dna', 'rna', 'protein', 'mitosis', 'meiosis', 'chromosome',
                         'gene', 'mutation', 'photosynthesis', 'respiration', 'enzyme', 'hormone',
                         'organ', 'tissue', 'blood', 'heart', 'brain', 'nerve', 'muscle',
                         'bacteria', 'virus', 'fungi', 'plant', 'animal', 'ecosystem', 'evolution',
                         'digestion', 'excretion', 'reproduction', 'ncert', 'bio']
-
     scores = {
         'math': sum(1 for k in math_keywords if k in text_lower),
         'physics': sum(1 for k in physics_keywords if k in text_lower),
         'chemistry': sum(1 for k in chemistry_keywords if k in text_lower),
         'biology': sum(1 for k in biology_keywords if k in text_lower),
     }
-
     best = max(scores, key=scores.get)
     if scores[best] == 0:
         return 'general'
@@ -158,38 +161,44 @@ def is_numerical(text):
 
 # ============ WOLFRAM ALPHA ============
 def solve_with_wolfram(query):
-    try:
-        if not WOLFRAM_APP_ID:
+    attempts = len(WOLFRAM_KEYS) if WOLFRAM_KEYS else 1
+    for _ in range(attempts):
+        active_key = get_wolfram_key()
+        if not active_key:
             return None
-        url = "http://api.wolframalpha.com/v2/query"
-        params = {
-            'input': query,
-            'format': 'plaintext',
-            'output': 'JSON',
-            'appid': WOLFRAM_APP_ID,
-        }
-        r = requests.get(url, params=params, timeout=15)
-        data = r.json()
-        pods = data.get('queryresult', {}).get('pods', [])
-        result_parts = []
-        for pod in pods:
-            title = pod.get('title', '')
-            if title.lower() in ['input', 'input interpretation']:
-                continue
-            for sub in pod.get('subpods', []):
-                plaintext = sub.get('plaintext', '').strip()
-                if plaintext:
-                    result_parts.append(f"{title}: {plaintext}")
-        if result_parts:
-            return '\n'.join(result_parts[:5])
-        return None
-    except Exception as e:
-        logging.error(f"Wolfram error: {e}")
-        return None
+        try:
+            url = "http://api.wolframalpha.com/v2/query"
+            params = {
+                'input': query,
+                'format': 'plaintext',
+                'output': 'JSON',
+                'appid': active_key,
+            }
+            r = requests.get(url, params=params, timeout=15)
+            if r.status_code == 200:
+                data = r.json()
+                pods = data.get('queryresult', {}).get('pods', [])
+                result_parts = []
+                for pod in pods:
+                    title = pod.get('title', '')
+                    if title.lower() in ['input', 'input interpretation']:
+                        continue
+                    for sub in pod.get('subpods', []):
+                        plaintext = sub.get('plaintext', '').strip()
+                        if plaintext:
+                            result_parts.append(f"{title}: {plaintext}")
+                if result_parts:
+                    return '\n'.join(result_parts[:5])
+            rotate_wolfram_key() # Fail hone par rotate karo
+        except Exception as e:
+            logging.error(f"Wolfram error: {e}")
+            rotate_wolfram_key()
+    return None
 
 # ============ GEMINI TEXT ============
 def ask_gemini_text(prompt):
-    for attempt in range(10):
+    total_keys = len(GEMINI_KEYS) if GEMINI_KEYS else 1
+    for attempt in range(total_keys * 2):
         key = get_gemini_key()
         if not key:
             return None
@@ -201,9 +210,9 @@ def ask_gemini_text(prompt):
             }
             r = requests.post(url, json=payload, timeout=30)
             if r.status_code == 429:
-                logging.warning(f"Gemini key {gemini_key_index} rate limited, rotating...")
+                logging.warning(f"Gemini text key index rate limited, rotating...")
                 rotate_gemini_key()
-                time.sleep(1)
+                time.sleep(0.5)
                 continue
             if r.status_code == 200:
                 data = r.json()
@@ -215,7 +224,8 @@ def ask_gemini_text(prompt):
 
 # ============ GEMINI VISION (IMAGE) ============
 def ask_gemini_vision(image_base64, instruction=""):
-    for attempt in range(10):
+    total_keys = len(GEMINI_KEYS) if GEMINI_KEYS else 1
+    for attempt in range(total_keys * 2):
         key = get_gemini_key()
         if not key:
             return None
@@ -236,9 +246,9 @@ def ask_gemini_vision(image_base64, instruction=""):
             }
             r = requests.post(url, json=payload, timeout=40)
             if r.status_code == 429:
-                logging.warning(f"Gemini vision key {gemini_key_index} rate limited, rotating...")
+                logging.warning(f"Gemini vision key index rate limited, rotating...")
                 rotate_gemini_key()
-                time.sleep(1)
+                time.sleep(0.5)
                 continue
             if r.status_code == 200:
                 data = r.json()
@@ -285,7 +295,6 @@ def clean_response(text):
 
 # ============ SEND MESSAGE ============
 def send_message(chat_id, text):
-    # Telegram 4096 char limit — split if needed
     max_len = 4000
     if len(text) <= max_len:
         for attempt in range(3):
@@ -312,39 +321,31 @@ def process_message(chat_id, text):
         numerical = is_numerical(text)
         logging.info(f"Subject: {subject}, Numerical: {numerical}")
 
-        # Step 1: Wolfram for math/physics numericals
         if numerical and subject in ['math', 'physics', 'chemistry']:
             wolfram_result = solve_with_wolfram(text)
             if wolfram_result:
-                # Wolfram result + Groq explanation
                 combined_prompt = f"""Student ka question: {text}
-
 Wolfram Alpha ne ye calculate kiya:
 {wolfram_result}
-
 Ab is calculation ko student ko step by step explain karo. Wolfram ka answer use karo, apni calculation mat karo."""
                 gemini_reply = ask_gemini_text(combined_prompt)
                 if gemini_reply:
                     send_message(chat_id, clean_response(gemini_reply))
                     return
-                # Fallback to Groq
                 reply = get_groq_answer(text, extra_context=wolfram_result)
                 send_message(chat_id, clean_response(reply))
                 return
 
-        # Step 2: Biology / Concepts — Groq fast
         if subject == 'biology' or not numerical:
             reply = get_groq_answer(text)
             send_message(chat_id, clean_response(reply))
             return
 
-        # Step 3: Gemini for rest
         gemini_reply = ask_gemini_text(f"{SYSTEM_PROMPT}\n\nQuestion: {text}")
         if gemini_reply:
             send_message(chat_id, clean_response(gemini_reply))
             return
 
-        # Final fallback
         reply = get_groq_answer(text)
         send_message(chat_id, clean_response(reply))
 
@@ -375,26 +376,24 @@ def process_image(chat_id, file_id, instruction):
     try:
         logging.info(f"Image processing — instruction: {instruction}")
 
-        # Download image
         file_info = requests.get(f"{TELEGRAM_API}/getFile?file_id={file_id}", timeout=10).json()
         file_path = file_info["result"]["file_path"]
         file_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_path}"
         img_response = requests.get(file_url, timeout=30)
         img_base64 = base64.b64encode(img_response.content).decode("utf-8")
 
-        # Gemini Vision — primary
         gemini_reply = ask_gemini_vision(img_base64, instruction)
         if gemini_reply:
             send_message(chat_id, clean_response(gemini_reply))
             return
 
-        # Fallback — Groq vision
         logging.warning("Gemini vision failed, trying Groq fallback...")
         if instruction:
             prompt = f"Is image mein jo question hai usse solve karo. Instruction: {instruction}"
         else:
             prompt = "Is image mein jo question hai usse step by step solve karo"
 
+        # Fixed model name here to standard Groq vision model
         chat_completion = client.chat.completions.create(
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
@@ -406,7 +405,7 @@ def process_image(chat_id, file_id, instruction):
                     ]
                 }
             ],
-            model="meta-llama/llama-4-scout-17b-16e-instruct",
+            model="llama-3.2-11b-vision-preview",
         )
         reply = clean_response(chat_completion.choices[0].message.content)
         send_message(chat_id, reply)
@@ -458,18 +457,14 @@ def webhook():
         photo = message.get("photo", None)
         bot_tag = f"@{BOT_USERNAME}"
 
-        # Image case
         if photo:
             logging.info(f"Photo received — caption: {caption}")
             if bot_tag.lower() in caption.lower():
                 instruction = re.sub(re.escape(bot_tag), '', caption, flags=re.IGNORECASE).strip()
                 file_id = photo[-1]["file_id"]
                 threading.Thread(target=process_image, args=(chat_id, file_id, instruction)).start()
-            else:
-                logging.info("Photo received but bot not tagged — ignoring")
             return "ok", 200
 
-        # Text case
         if bot_tag.lower() in text.lower():
             clean_text = re.sub(re.escape(bot_tag), '', text, flags=re.IGNORECASE).strip()
             simple_commands = ["solve", "karo", "help", "explain", "batao", "solve karo"]
@@ -489,7 +484,7 @@ def webhook():
 
 @app.route("/", methods=["GET"])
 def home():
-    return "PCMB Bot is running!", 200
+    return "PCMB Bot with Key Rotators is running!", 200
 
 if __name__ == "__main__":
     get_bot_username()
