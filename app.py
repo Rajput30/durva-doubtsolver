@@ -11,7 +11,7 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
-SPACE_HOST = os.environ.get("RAILWAY_STATIC_URL", "")
+SPACE_HOST = "durva-doubtsolver.onrender.com"
 TELEGRAM_API = f"https://api.telegram.org/bot{TOKEN}"
 
 client = Groq(api_key=GROQ_API_KEY)
