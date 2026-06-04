@@ -12,26 +12,23 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-# ============ CONFIG ============
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_API = f"https://api.telegram.org/bot{TOKEN}"
 BOT_USERNAME = "Durva_mentor_bot"
-SPACE_HOST = os.environ.get("RENDER_HOST", "durva-doubtsolver.onrender.com")
+SPACE_HOST = "durva-doubtsolver.onrender.com"
 
 WOLFRAM_KEYS = [os.environ.get(f"WOLFRAM_APPID{i}") for i in range(1, 9) if os.environ.get(f"WOLFRAM_APPID{i}")]
-GEMINI_KEYS = [os.environ.get(f"GEMINI_KEY_{i}") for i in range(1, 11) if os.environ.get(f"GEMINI_KEY_{i}")]
 GROQ_KEYS = [os.environ.get(f"GROQ_API_KEY_{i}") for i in range(1, 5) if os.environ.get(f"GROQ_API_KEY_{i}")]
 if not GROQ_KEYS and os.environ.get("GROQ_API_KEY"):
     GROQ_KEYS.append(os.environ.get("GROQ_API_KEY"))
 
+logging.info(f"Wolfram keys: {len(WOLFRAM_KEYS)}, Groq keys: {len(GROQ_KEYS)}")
+
 app = Flask(__name__)
 
-# ============ KEY ROTATORS ============
 wolfram_key_index = 0
-gemini_key_index = 0
 groq_key_index = 0
 wolfram_lock = threading.Lock()
-gemini_lock = threading.Lock()
 groq_lock = threading.Lock()
 
 def get_wolfram_key():
@@ -43,15 +40,6 @@ def get_wolfram_key():
         wolfram_key_index = (wolfram_key_index + 1) % len(WOLFRAM_KEYS)
         return key
 
-def get_gemini_key():
-    global gemini_key_index
-    with gemini_lock:
-        if not GEMINI_KEYS:
-            return None
-        key = GEMINI_KEYS[gemini_key_index % len(GEMINI_KEYS)]
-        gemini_key_index = (gemini_key_index + 1) % len(GEMINI_KEYS)
-        return key
-
 def get_groq_client():
     global groq_key_index
     with groq_lock:
@@ -61,130 +49,117 @@ def get_groq_client():
         groq_key_index = (groq_key_index + 1) % len(GROQ_KEYS)
         return Groq(api_key=key)
 
-# ============ WEBHOOK SETUP ============
-def set_webhook():
-    webhook_url = f"https://{SPACE_HOST}/webhook"
-    url = f"{TELEGRAM_API}/setWebhook"
-    response = requests.post(url, json={"url": webhook_url}, timeout=10)
-    result = response.json()
-    logging.info(f"Webhook set: {result}")
-    return result
-
-def get_bot_username():
-    try:
-        url = f"{TELEGRAM_API}/getMe"
-        response = requests.get(url, timeout=10)
-        data = response.json()
-        username = data["result"]["username"]
-        logging.info(f"Bot username: {username}")
-        return username
-    except Exception as e:
-        logging.warning(f"Username fetch error: {e}")
-        return BOT_USERNAME
-
-# ============ SYSTEM PROMPT ============
 SYSTEM_PROMPT = """Tu ek expert JEE aur NEET doubt solver bot hai jo 11th-12th ke students ki help karta hai.
 SUBJECTS: Physics, Chemistry, Math, Biology (PCMB)
-LANGUAGE: Hinglish mein jawab de. Scientific terms English mein rakho.
-LENGTH: Maximum 8-10 steps, har step 1-2 lines ka. Short aur clear.
-FORMATTING: Koi ## headers nahi, Koi $ signs nahi, Koi * ** _ nahi, Koi LaTeX nahi, koi Markdown nahi.
-"""
+LANGUAGE RULES:
+- Hinglish mein jawab de by default
+- Agar student bole "english mein" toh English mein jawab de
+- Scientific terms hamesha English mein rakho
+LENGTH: Maximum 8-10 steps, har step 1-2 lines. Short aur clear.
+FORMATTING:
+- Koi ## headers nahi
+- Koi $ signs nahi
+- Koi LaTeX nahi
+- Koi * ** _ nahi
+- Powers: x², H₂O, CO₂
+- Fractions: (a/b)
+- Multiplication: x
+- Greek: θ α β π Δ ω λ
+- Steps: 1. 2. 3.
+ACCURACY: Pehle soch ke solve karo. Final answer clearly likho."""
 
-# ============ SUBJECT DETECTOR ============
-def detect_subject(text):
-    text_lower = text.lower()
-    math_keywords = ['integrate', 'differentiate', 'derivative', 'integral', 'matrix', 'limit',
-                     'solve', 'equation', 'trigonometry', 'sin', 'cos', 'tan', 'log', 'algebra']
-    physics_keywords = ['force', 'velocity', 'acceleration', 'current', 'voltage', 'resistance',
-                        'energy', 'power', 'momentum', 'torque', 'gravity', 'motion', 'wave', 'optics']
-    chemistry_keywords = ['mole', 'molarity', 'reaction', 'bond', 'organic', 'acid', 'base',
-                          'titration', 'equilibrium', 'element', 'compound', 'valency']
-    biology_keywords = ['cell', 'dna', 'rna', 'protein', 'mitosis', 'meiosis', 'chromosome',
-                        'genetic', 'disorder', 'autosomal', 'enzyme', 'hormone', 'tissue', 'organ']
-    scores = {
-        'math': sum(1 for k in math_keywords if k in text_lower),
-        'physics': sum(1 for k in physics_keywords if k in text_lower),
-        'chemistry': sum(1 for k in chemistry_keywords if k in text_lower),
-        'biology': sum(1 for k in biology_keywords if k in text_lower),
-    }
-    best = max(scores, key=scores.get)
-    return best if scores[best] > 0 else 'general'
+def set_webhook():
+    try:
+        url = f"{TELEGRAM_API}/setWebhook"
+        r = requests.post(url, json={"url": f"https://{SPACE_HOST}/webhook"}, timeout=10)
+        logging.info(f"Webhook set: {r.json()}")
+    except Exception as e:
+        logging.warning(f"Webhook error: {e}")
+
+def get_bot_username():
+    global BOT_USERNAME
+    try:
+        r = requests.get(f"{TELEGRAM_API}/getMe", timeout=10).json()
+        BOT_USERNAME = r["result"]["username"]
+        logging.info(f"Bot username: {BOT_USERNAME}")
+    except Exception as e:
+        logging.warning(f"Username error: {e}")
+
+def send_message(chat_id, text):
+    try:
+        max_len = 4000
+        if len(text) > max_len:
+            for i in range(0, len(text), max_len):
+                requests.post(f"{TELEGRAM_API}/sendMessage",
+                            json={"chat_id": chat_id, "text": text[i:i+max_len]}, timeout=30)
+                time.sleep(0.5)
+        else:
+            requests.post(f"{TELEGRAM_API}/sendMessage",
+                        json={"chat_id": chat_id, "text": text}, timeout=30)
+    except Exception as e:
+        logging.warning(f"Send failed: {e}")
+
+def clean_response(text):
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+    text = re.sub(r'[#`]', '', text)
+    text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
+    text = re.sub(r'\*(.*?)\*', r'\1', text)
+    text = re.sub(r'\$\$.*?\$\$', '', text, flags=re.DOTALL)
+    text = re.sub(r'\$.*?\$', '', text)
+    text = re.sub(r'\\frac\{(.*?)\}\{(.*?)\}', r'(\1/\2)', text)
+    text = re.sub(r'\\sqrt\{(.*?)\}', r'√(\1)', text)
+    text = re.sub(r'\\theta', 'θ', text)
+    text = re.sub(r'\\alpha', 'α', text)
+    text = re.sub(r'\\beta', 'β', text)
+    text = re.sub(r'\\pi', 'π', text)
+    text = re.sub(r'\\Delta', 'Δ', text)
+    text = re.sub(r'\\times', '×', text)
+    text = re.sub(r'\\pm', '±', text)
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
 
 def is_numerical(text):
     has_numbers = bool(re.search(r'\d+', text))
     calc_words = ['calculate', 'find', 'value', 'compute', 'evaluate', 'determine',
                   'what is', 'solve', 'numerically', 'how much', 'how many']
-    has_calc = any(w in text.lower() for w in calc_words)
-    return has_numbers and has_calc
+    return has_numbers and any(w in text.lower() for w in calc_words)
 
-# ============ GEMINI VISION - SIRF EXTRACT ============
-def extract_question_from_image(image_base64):
-    total_keys = len(GEMINI_KEYS) if GEMINI_KEYS else 1
-    for _ in range(total_keys):
-        key = get_gemini_key()
+def solve_with_wolfram(query):
+    for _ in range(len(WOLFRAM_KEYS) if WOLFRAM_KEYS else 0):
+        key = get_wolfram_key()
         if not key:
             return None
         try:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={key}"
-            prompt = """Extract the question from this image exactly as written.
-Only return the question text, nothing else.
-Do not solve it, do not add explanation.
-Just extract the text of the question accurately."""
-            payload = {
-                "contents": [{"parts": [
-                    {"text": prompt},
-                    {"inline_data": {"mime_type": "image/jpeg", "data": image_base64}}
-                ]}],
-                "generationConfig": {"temperature": 0.1, "maxOutputTokens": 500}
-            }
-            r = requests.post(url, json=payload, timeout=40)
+            r = requests.get("http://api.wolframalpha.com/v2/query",
+                           params={'input': query, 'format': 'plaintext',
+                                  'output': 'JSON', 'appid': key}, timeout=15)
             if r.status_code == 200:
-                data = r.json()
-                return data['candidates'][0]['content']['parts'][0]['text'].strip()
-        except Exception as e:
-            logging.error(f"Gemini vision error: {e}")
-    return None
-
-# ============ WOLFRAM ALPHA ============
-def solve_with_wolfram(query):
-    for _ in range(len(WOLFRAM_KEYS) if WOLFRAM_KEYS else 0):
-        active_key = get_wolfram_key()
-        if not active_key:
-            return None
-        try:
-            url = "http://api.wolframalpha.com/v2/query"
-            params = {'input': query, 'format': 'plaintext', 'output': 'JSON', 'appid': active_key}
-            r = requests.get(url, params=params, timeout=15)
-            if r.status_code == 200:
-                data = r.json()
-                pods = data.get('queryresult', {}).get('pods', [])
-                result_parts = []
+                pods = r.json().get('queryresult', {}).get('pods', [])
+                parts = []
                 for pod in pods:
-                    title = pod.get('title', '')
-                    if title.lower() in ['input', 'input interpretation']:
+                    if pod.get('title', '').lower() in ['input', 'input interpretation']:
                         continue
                     for sub in pod.get('subpods', []):
-                        plaintext = sub.get('plaintext', '').strip()
-                        if plaintext:
-                            result_parts.append(f"{title}: {plaintext}")
-                if result_parts:
-                    return '\n'.join(result_parts[:5])
+                        text = sub.get('plaintext', '').strip()
+                        if text:
+                            parts.append(f"{pod['title']}: {text}")
+                if parts:
+                    return '\n'.join(parts[:5])
         except Exception as e:
             logging.error(f"Wolfram error: {e}")
     return None
 
-# ============ GROQ ============
-def solve_with_groq(question, wolfram_result=None):
+def solve_with_groq_text(question, wolfram_result=None):
     for _ in range(len(GROQ_KEYS) if GROQ_KEYS else 1):
-        groq_client = get_groq_client()
-        if not groq_client:
+        client = get_groq_client()
+        if not client:
             return None
         try:
             if wolfram_result:
                 user_msg = f"Question: {question}\n\nWolfram Alpha answer:\n{wolfram_result}\n\nAb is answer ko step-by-step simple Hinglish mein explain karo."
             else:
                 user_msg = question
-            chat_completion = groq_client.chat.completions.create(
+            response = client.chat.completions.create(
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": user_msg}
@@ -193,24 +168,45 @@ def solve_with_groq(question, wolfram_result=None):
                 max_tokens=1000,
                 temperature=0.3
             )
-            return chat_completion.choices[0].message.content
+            return response.choices[0].message.content
         except Exception as e:
-            logging.error(f"Groq error: {e}")
+            logging.error(f"Groq text error: {e}")
     return None
 
-# ============ MAIN SOLVER ============
+def solve_with_groq_vision(image_base64, instruction):
+    for _ in range(len(GROQ_KEYS) if GROQ_KEYS else 1):
+        client = get_groq_client()
+        if not client:
+            return None
+        try:
+            prompt = instruction if instruction else "Is image mein jo question hai usse step by step solve karo."
+            response = client.chat.completions.create(
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}}
+                        ]
+                    }
+                ],
+                model="meta-llama/llama-4-maverick-17b-128e-instruct",
+                max_tokens=1000,
+                temperature=0.3
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            logging.error(f"Groq vision error: {e}")
+    return None
+
 def solve_question(chat_id, question):
     try:
-        subject = detect_subject(question)
-        numerical = is_numerical(question)
-        logging.info(f"Subject: {subject}, Numerical: {numerical}")
-
-        if numerical and subject in ['math', 'physics', 'chemistry']:
+        wolfram_result = None
+        if is_numerical(question):
             wolfram_result = solve_with_wolfram(question)
-            reply = solve_with_groq(question, wolfram_result)
-        else:
-            reply = solve_with_groq(question)
-
+            logging.info(f"Wolfram result: {wolfram_result[:100] if wolfram_result else 'None'}")
+        reply = solve_with_groq_text(question, wolfram_result)
         if reply:
             send_message(chat_id, clean_response(reply))
         else:
@@ -219,57 +215,34 @@ def solve_question(chat_id, question):
         logging.error(f"Solve error: {e}")
         send_message(chat_id, "Kuch error aa gaya. Dobara try karo!")
 
-# ============ IMAGE HANDLER ============
 def process_image(chat_id, file_id, instruction):
     try:
+        send_message(chat_id, "Image dekh raha hoon... ek second!")
         file_info = requests.get(f"{TELEGRAM_API}/getFile?file_id={file_id}", timeout=10).json()
         file_path = file_info["result"]["file_path"]
         img_response = requests.get(f"https://api.telegram.org/file/bot{TOKEN}/{file_path}", timeout=30)
         img_base64 = base64.b64encode(img_response.content).decode("utf-8")
-
-        send_message(chat_id, "Image dekh raha hoon... ek second!")
-        extracted_question = extract_question_from_image(img_base64)
-
-        if not extracted_question:
-            send_message(chat_id, "Image se question nahi padh paya. Clear image bhejo!")
-            return
-
-        full_question = f"{extracted_question}\n{instruction}".strip() if instruction else extracted_question
-        solve_question(chat_id, full_question)
+        reply = solve_with_groq_vision(img_base64, instruction)
+        if reply:
+            send_message(chat_id, clean_response(reply))
+        else:
+            send_message(chat_id, "Image solve nahi ho payi. Text mein question likho!")
     except Exception as e:
         logging.error(f"Image error: {e}")
         send_message(chat_id, "Image process nahi ho payi. Dobara try karo!")
 
-# ============ UTILS ============
-def clean_response(text):
-    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
-    text = re.sub(r'[*#`_$]', '', text)
-    text = re.sub(r'\n{3,}', '\n\n', text)
-    return text.strip()
+def get_replied_message_text(message):
+    replied = message.get("reply_to_message", None)
+    if replied:
+        return replied.get("text", "") or replied.get("caption", "")
+    return ""
 
-def send_message(chat_id, text):
-    try:
-        max_len = 4000
-        if len(text) > max_len:
-            parts = [text[i:i+max_len] for i in range(0, len(text), max_len)]
-            for part in parts:
-                requests.post(f"{TELEGRAM_API}/sendMessage",
-                              json={"chat_id": chat_id, "text": part}, timeout=30)
-                time.sleep(0.5)
-        else:
-            requests.post(f"{TELEGRAM_API}/sendMessage",
-                          json={"chat_id": chat_id, "text": text}, timeout=30)
-    except Exception as e:
-        logging.warning(f"Send failed: {e}")
-
-# ============ WEBHOOK ============
 @app.route("/webhook", methods=["POST"])
 def webhook():
     try:
         data = request.get_json()
         if not data or "message" not in data:
             return "ok", 200
-
         message = data["message"]
         chat_id = message["chat"]["id"]
         text = message.get("text", "")
@@ -279,20 +252,22 @@ def webhook():
 
         if photo:
             if bot_tag.lower() in caption.lower():
-                instruction = caption.replace(bot_tag, "").strip()
+                instruction = re.sub(re.escape(bot_tag), '', caption, flags=re.IGNORECASE).strip()
                 file_id = photo[-1]["file_id"]
                 threading.Thread(target=process_image, args=(chat_id, file_id, instruction)).start()
             return "ok", 200
 
         if bot_tag.lower() in text.lower():
-            clean_text = text.replace(bot_tag, "").strip()
-            replied = message.get("reply_to_message", None)
-            if replied:
-                replied_text = replied.get("text", "") or replied.get("caption", "")
-                clean_text = f"{replied_text}\n{clean_text}".strip()
-            if not clean_text:
-                send_message(chat_id, "Bhai question toh do!")
-                return "ok", 200
+            clean_text = re.sub(re.escape(bot_tag), '', text, flags=re.IGNORECASE).strip()
+            simple_commands = ["solve", "karo", "help", "batao", "solve karo"]
+            if not clean_text or clean_text.lower() in simple_commands:
+                replied_text = get_replied_message_text(message)
+                if replied_text:
+                    instruction = clean_text if clean_text else ""
+                    clean_text = f"{replied_text}\n{instruction}".strip() if instruction else replied_text
+                else:
+                    send_message(chat_id, "Bhai question toh do ya kisi question pe reply karke @Durva_mentor_bot solve karo!")
+                    return "ok", 200
             threading.Thread(target=solve_question, args=(chat_id, clean_text)).start()
 
     except Exception as e:
@@ -306,4 +281,5 @@ def home():
 if __name__ == "__main__":
     get_bot_username()
     set_webhook()
+    logging.info("Bot start ho gaya!")
     app.run(host="0.0.0.0", port=8080)
