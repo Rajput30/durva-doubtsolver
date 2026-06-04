@@ -140,9 +140,9 @@ def solve_with_wolfram(query):
                     if pod.get('title', '').lower() in ['input', 'input interpretation']:
                         continue
                     for sub in pod.get('subpods', []):
-                        text = sub.get('plaintext', '').strip()
-                        if text:
-                            parts.append(f"{pod['title']}: {text}")
+                        t = sub.get('plaintext', '').strip()
+                        if t:
+                            parts.append(f"{pod['title']}: {t}")
                 if parts:
                     return '\n'.join(parts[:5])
         except Exception as e:
@@ -191,7 +191,7 @@ def solve_with_groq_vision(image_base64, instruction):
                         ]
                     }
                 ],
-                model="meta-llama/llama-4-maverick-17b-128e-instruct",
+                model="meta-llama/llama-4-scout-17b-16e-instruct",
                 max_tokens=1000,
                 temperature=0.3
             )
