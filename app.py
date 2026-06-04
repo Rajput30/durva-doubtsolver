@@ -51,22 +51,32 @@ def get_groq_client():
 
 SYSTEM_PROMPT = """Tu ek expert JEE aur NEET doubt solver bot hai jo 11th-12th ke students ki help karta hai.
 SUBJECTS: Physics, Chemistry, Math, Biology (PCMB)
+
 LANGUAGE RULES:
 - Hinglish mein jawab de by default
 - Agar student bole "english mein" toh English mein jawab de
 - Scientific terms hamesha English mein rakho
+
 LENGTH: Maximum 8-10 steps, har step 1-2 lines. Short aur clear.
+
+VARIABLES AUR EXPRESSIONS — BAHUT IMPORTANT:
+- Variables hamesha clearly likho — jaise n, x, a, b, A, B
+- Powers aise likho: n², x³, n(n-1)
+- Fractions aise likho: n(n-1)/2
+- Exponents aise likho: 2^(n(n-1)/2)
+- Koi bhi variable blank mat chhodna — har jagah clearly likho
+- Expressions clearly likho
+
 FORMATTING:
 - Koi ## headers nahi
 - Koi $ signs nahi
-- Koi LaTeX nahi
+- Koi LaTeX nahi — koi \\frac \\theta \\sin nahi
 - Koi * ** _ nahi
 - Powers: x², H₂O, CO₂
-- Fractions: (a/b)
-- Multiplication: x
 - Greek: θ α β π Δ ω λ
 - Steps: 1. 2. 3.
-ACCURACY: Pehle soch ke solve karo. Final answer clearly likho."""
+
+ACCURACY: Pehle soch ke solve karo. Final answer clearly likho jaise: Answer: (c) 2^(n(n-1)/2)"""
 
 def set_webhook():
     try:
@@ -179,7 +189,7 @@ def solve_with_groq_vision(image_base64, instruction):
         if not client:
             return None
         try:
-            prompt = instruction if instruction else "Is image mein jo question hai usse step by step solve karo."
+            prompt = instruction if instruction else "Is image mein jo question hai usse step by step solve karo. Saare variables clearly likho."
             response = client.chat.completions.create(
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
