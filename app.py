@@ -72,40 +72,26 @@ LANGUAGE RULES:
 - Agar student bole "english mein" toh English mein jawab de
 - Scientific terms hamesha English mein rakho
 
-MOST IMPORTANT — RESPONSE MODE:
+LENGTH: Maximum 8-10 steps, har step 1-2 lines. Short aur clear.
 
-MODE 1 — SOLVE (default, jab sirf question pucha ho):
-- Sirf solving steps do — jo steps answer tak le jaayein wahi likho
-- Agar 2 steps mein answer aata hai toh 2 steps, agar 6 chahiye toh 6 — jo zaroori ho utna
-- Koi theory nahi, koi concept explanation nahi, koi extra lines nahi
-- Bas: step → step → Answer
-- Last line hamesha: Answer: [answer]
-- Example (matrix question):
-  bᵢⱼ = 3^(i-j)·aᵢⱼ → B = D₃·A·D₃⁻¹ → det(B) = det(A) = 2
-  cᵢⱼ = 4^(i-j)·bᵢⱼ → C = D₄·A·D₄⁻¹ → det(C) = det(A) = 2
-  det(BC) = det(B)·det(C) = 2×2 = 4
-  Answer: 4
-
-MODE 2 — EXPLANATION (sirf tab jab student specifically maange):
-- Student ne "explain karo", "samjhao", "why", "kaise", "concept batao" likha ho
-- Tab concept + theory + detailed steps do
-- Clearly samjhao kyun aur kaise
-
-VARIABLES AUR EXPRESSIONS:
-- Powers: n², x³, n(n-1)
-- Fractions: n(n-1)/2
-- Exponents: 2^(n(n-1)/2)
-- Greek: θ α β π Δ ω λ
-- Variables clearly likho — blank mat chhodna
+VARIABLES AUR EXPRESSIONS — BAHUT IMPORTANT:
+- Variables hamesha clearly likho — jaise n, x, a, b, A, B
+- Powers aise likho: n², x³, n(n-1)
+- Fractions aise likho: n(n-1)/2
+- Exponents aise likho: 2^(n(n-1)/2)
+- Koi bhi variable blank mat chhodna — har jagah clearly likho
+- Expressions clearly likho
 
 FORMATTING:
 - Koi ## headers nahi
 - Koi $ signs nahi
-- Koi LaTeX nahi
+- Koi LaTeX nahi — koi \\frac \\theta \\sin nahi
 - Koi * ** _ nahi
-- Steps: 1. 2. 3. (sirf MODE 2 mein)
+- Powers: x², H₂O, CO₂
+- Greek: θ α β π Δ ω λ
+- Steps: 1. 2. 3.
 
-ACCURACY: Pehle soch ke solve karo. Galat assume mat karo — jaise det(A)=2 ka matlab A=2I nahi hota."""
+ACCURACY: Pehle soch ke solve karo. Final answer clearly likho jaise: Answer: (c) 2^(n(n-1)/2)"""
 
 def set_webhook():
     try:
@@ -159,87 +145,9 @@ def clean_response(text):
 
 def is_numerical(text):
     has_numbers = bool(re.search(r'\d+', text))
-
-    # Math keywords
-    math_words = [
-        # Basic operations
-        'calculate', 'compute', 'evaluate', 'simplify', 'expand', 'factorize', 'factorise',
-        'find', 'solve', 'determine', 'what is', 'how much', 'how many', 'numerically',
-        # Algebra
-        'equation', 'quadratic', 'polynomial', 'roots', 'zeros', 'factor', 'expression',
-        'inequality', 'system of equations', 'linear', 'variable', 'coefficient',
-        'arithmetic', 'geometric', 'progression', 'series', 'sequence', 'sum of',
-        'binomial', 'permutation', 'combination', 'nCr', 'nPr', 'factorial',
-        # Calculus
-        'integrate', 'integration', 'differentiate', 'differentiation', 'derivative',
-        'limit', 'lim', 'continuity', 'differentiable', 'maxima', 'minima',
-        'area under', 'volume of', 'rate of change', 'tangent', 'normal to curve',
-        # Matrices & Determinants
-        'det', 'determinant', 'matrix', 'matrices', 'inverse', 'transpose',
-        'eigenvalue', 'eigenvector', 'rank', 'trace', 'adjoint', 'cofactor',
-        'singular', 'non-singular', 'identity matrix',
-        # Trigonometry
-        'sin', 'cos', 'tan', 'cot', 'sec', 'cosec', 'csc',
-        'angle', 'trigonometric', 'inverse trig', 'arcsin', 'arccos', 'arctan',
-        'principal value', 'general solution', 'height and distance',
-        # Coordinate Geometry
-        'distance', 'midpoint', 'slope', 'intercept', 'line', 'circle',
-        'parabola', 'ellipse', 'hyperbola', 'conic', 'locus', 'chord',
-        'tangent to', 'normal to', 'focus', 'directrix', 'eccentricity',
-        # 3D & Vectors
-        'vector', 'magnitude', 'dot product', 'cross product', 'scalar',
-        'unit vector', 'position vector', 'projection', 'angle between',
-        'plane', 'line in 3d', 'distance from', 'direction cosine',
-        # Probability & Stats
-        'probability', 'P(', 'bayes', 'mean', 'median', 'mode', 'variance',
-        'standard deviation', 'distribution', 'binomial distribution',
-        'poisson', 'normal distribution', 'expected value',
-        # Number Theory
-        'lcm', 'hcf', 'gcd', 'prime', 'divisible', 'remainder', 'modulo',
-        'complex number', 'imaginary', 'real part', 'argument', 'modulus',
-        'equal to', 'equals', 'find the value', 'value of',
-    ]
-
-    # Physics keywords
-    physics_words = [
-        # Mechanics
-        'velocity', 'acceleration', 'displacement', 'distance', 'speed',
-        'force', 'mass', 'weight', 'momentum', 'impulse', 'power', 'work',
-        'energy', 'kinetic', 'potential', 'friction', 'tension', 'normal force',
-        'projectile', 'circular motion', 'angular velocity', 'torque',
-        'moment of inertia', 'angular momentum', 'rotational', 'rolling',
-        'collision', 'elastic', 'inelastic', 'centre of mass',
-        'gravitation', 'orbital', 'escape velocity', 'satellite',
-        # Thermodynamics
-        'temperature', 'heat', 'specific heat', 'thermal', 'conduction',
-        'convection', 'radiation', 'entropy', 'enthalpy', 'internal energy',
-        'carnot', 'efficiency', 'ideal gas', 'pressure', 'volume', 'boyle',
-        'charles', 'isothermal', 'adiabatic', 'isobaric', 'isochoric',
-        # Waves & Oscillations
-        'frequency', 'wavelength', 'amplitude', 'time period', 'wave',
-        'sound', 'doppler', 'resonance', 'standing wave', 'beats',
-        'simple harmonic', 'shm', 'oscillation', 'pendulum', 'spring',
-        # Optics
-        'refraction', 'reflection', 'lens', 'mirror', 'focal length',
-        'refractive index', 'snell', 'total internal reflection',
-        'optical', 'magnification', 'image', 'object distance',
-        'prism', 'dispersion', 'interference', 'diffraction', 'polarization',
-        # Electricity & Magnetism
-        'current', 'voltage', 'resistance', 'capacitance', 'inductance',
-        'ohm', 'kirchhoff', 'circuit', 'power dissipation', 'electric field',
-        'magnetic field', 'flux', 'emf', 'charge', 'coulomb',
-        'capacitor', 'inductor', 'transformer', 'alternating current', 'ac', 'dc',
-        # Modern Physics
-        'photoelectric', 'photon', 'wavelength of electron', 'de broglie',
-        'half life', 'radioactive', 'decay', 'nuclear', 'binding energy',
-        'bohr model', 'energy level', 'ionization energy',
-    ]
-
-    all_keywords = math_words + physics_words
-    text_lower = text.lower()
-    return any(w in text_lower for w in all_keywords) or (has_numbers and any(
-        w in text_lower for w in ['value', 'find', 'solve', 'calculate', 'equal']))
-
+    calc_words = ['calculate', 'find', 'value', 'compute', 'evaluate', 'determine',
+                  'what is', 'solve', 'numerically', 'how much', 'how many']
+    return has_numbers and any(w in text.lower() for w in calc_words)
 
 def solve_with_wolfram(query):
     for _ in range(len(WOLFRAM_KEYS) if WOLFRAM_KEYS else 0):
