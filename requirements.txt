@@ -1,5 +1,5 @@
 flask
 requests
-groq
+cohere
 certifi
 urllib3
