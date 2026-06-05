@@ -6,7 +6,7 @@ import base64
 import re
 import time
 from flask import Flask, request
-from groq import Groq
+import cohere
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -18,18 +18,24 @@ BOT_USERNAME = "Durva_mentor_bot"
 SPACE_HOST = "durva-doubtsolver.onrender.com"
 
 WOLFRAM_KEYS = [os.environ.get(f"WOLFRAM_APPID{i}") for i in range(1, 9) if os.environ.get(f"WOLFRAM_APPID{i}")]
-GROQ_KEYS = [os.environ.get(f"GROQ_API_KEY_{i}") for i in range(1, 5) if os.environ.get(f"GROQ_API_KEY_{i}")]
-if not GROQ_KEYS and os.environ.get("GROQ_API_KEY"):
-    GROQ_KEYS.append(os.environ.get("GROQ_API_KEY"))
+COHERE_KEYS = [os.environ.get(f"COHERE_API_KEY_{i}") for i in range(1, 6) if os.environ.get(f"COHERE_API_KEY_{i}")]
+if not COHERE_KEYS and os.environ.get("COHERE_API_KEY"):
+    COHERE_KEYS.append(os.environ.get("COHERE_API_KEY"))
 
-logging.info(f"Wolfram keys: {len(WOLFRAM_KEYS)}, Groq keys: {len(GROQ_KEYS)}")
+MISTRAL_KEYS = [os.environ.get(f"MISTRAL_API_KEY_{i}") for i in range(1, 6) if os.environ.get(f"MISTRAL_API_KEY_{i}")]
+if not MISTRAL_KEYS and os.environ.get("MISTRAL_API_KEY"):
+    MISTRAL_KEYS.append(os.environ.get("MISTRAL_API_KEY"))
+
+logging.info(f"Wolfram keys: {len(WOLFRAM_KEYS)}, Cohere keys: {len(COHERE_KEYS)}, Mistral keys: {len(MISTRAL_KEYS)}")
 
 app = Flask(__name__)
 
 wolfram_key_index = 0
-groq_key_index = 0
+cohere_key_index = 0
+mistral_key_index = 0
 wolfram_lock = threading.Lock()
-groq_lock = threading.Lock()
+cohere_lock = threading.Lock()
+mistral_lock = threading.Lock()
 
 def get_wolfram_key():
     global wolfram_key_index
@@ -40,14 +46,23 @@ def get_wolfram_key():
         wolfram_key_index = (wolfram_key_index + 1) % len(WOLFRAM_KEYS)
         return key
 
-def get_groq_client():
-    global groq_key_index
-    with groq_lock:
-        if not GROQ_KEYS:
+def get_cohere_client():
+    global cohere_key_index
+    with cohere_lock:
+        if not COHERE_KEYS:
             return None
-        key = GROQ_KEYS[groq_key_index % len(GROQ_KEYS)]
-        groq_key_index = (groq_key_index + 1) % len(GROQ_KEYS)
-        return Groq(api_key=key)
+        key = COHERE_KEYS[cohere_key_index % len(COHERE_KEYS)]
+        cohere_key_index = (cohere_key_index + 1) % len(COHERE_KEYS)
+        return cohere.ClientV2(api_key=key)
+
+def get_mistral_key():
+    global mistral_key_index
+    with mistral_lock:
+        if not MISTRAL_KEYS:
+            return None
+        key = MISTRAL_KEYS[mistral_key_index % len(MISTRAL_KEYS)]
+        mistral_key_index = (mistral_key_index + 1) % len(MISTRAL_KEYS)
+        return key
 
 SYSTEM_PROMPT = """Tu ek expert JEE aur NEET doubt solver bot hai jo 11th-12th ke students ki help karta hai.
 SUBJECTS: Physics, Chemistry, Math, Biology (PCMB)
@@ -159,9 +174,9 @@ def solve_with_wolfram(query):
             logging.error(f"Wolfram error: {e}")
     return None
 
-def solve_with_groq_text(question, wolfram_result=None):
-    for _ in range(len(GROQ_KEYS) if GROQ_KEYS else 1):
-        client = get_groq_client()
+def solve_with_cohere(question, wolfram_result=None):
+    for _ in range(len(COHERE_KEYS) if COHERE_KEYS else 1):
+        client = get_cohere_client()
         if not client:
             return None
         try:
@@ -169,29 +184,34 @@ def solve_with_groq_text(question, wolfram_result=None):
                 user_msg = f"Question: {question}\n\nWolfram Alpha answer:\n{wolfram_result}\n\nAb is answer ko step-by-step simple Hinglish mein explain karo."
             else:
                 user_msg = question
-            response = client.chat.completions.create(
+            response = client.chat(
+                model="command-r-plus",
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": user_msg}
                 ],
-                model="llama-3.3-70b-versatile",
                 max_tokens=1000,
                 temperature=0.3
             )
-            return response.choices[0].message.content
+            return response.message.content[0].text
         except Exception as e:
-            logging.error(f"Groq text error: {e}")
+            logging.error(f"Cohere text error: {e}")
     return None
 
-def solve_with_groq_vision(image_base64, instruction):
-    for _ in range(len(GROQ_KEYS) if GROQ_KEYS else 1):
-        client = get_groq_client()
-        if not client:
+def solve_with_mistral_vision(image_base64, instruction):
+    for _ in range(len(MISTRAL_KEYS) if MISTRAL_KEYS else 1):
+        key = get_mistral_key()
+        if not key:
             return None
         try:
             prompt = instruction if instruction else "Is image mein jo question hai usse step by step solve karo. Saare variables clearly likho."
-            response = client.chat.completions.create(
-                messages=[
+            headers = {
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "model": "pixtral-12b-2409",
+                "messages": [
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {
                         "role": "user",
@@ -201,13 +221,17 @@ def solve_with_groq_vision(image_base64, instruction):
                         ]
                     }
                 ],
-                model="meta-llama/llama-4-scout-17b-16e-instruct",
-                max_tokens=1000,
-                temperature=0.3
-            )
-            return response.choices[0].message.content
+                "max_tokens": 1000,
+                "temperature": 0.3
+            }
+            r = requests.post("https://api.mistral.ai/v1/chat/completions",
+                            headers=headers, json=payload, timeout=30)
+            if r.status_code == 200:
+                return r.json()["choices"][0]["message"]["content"]
+            else:
+                logging.error(f"Mistral error {r.status_code}: {r.text}")
         except Exception as e:
-            logging.error(f"Groq vision error: {e}")
+            logging.error(f"Mistral vision error: {e}")
     return None
 
 def solve_question(chat_id, question):
@@ -216,7 +240,7 @@ def solve_question(chat_id, question):
         if is_numerical(question):
             wolfram_result = solve_with_wolfram(question)
             logging.info(f"Wolfram result: {wolfram_result[:100] if wolfram_result else 'None'}")
-        reply = solve_with_groq_text(question, wolfram_result)
+        reply = solve_with_cohere(question, wolfram_result)
         if reply:
             send_message(chat_id, clean_response(reply))
         else:
@@ -232,9 +256,28 @@ def process_image(chat_id, file_id, instruction):
         file_path = file_info["result"]["file_path"]
         img_response = requests.get(f"https://api.telegram.org/file/bot{TOKEN}/{file_path}", timeout=30)
         img_base64 = base64.b64encode(img_response.content).decode("utf-8")
-        reply = solve_with_groq_vision(img_base64, instruction)
-        if reply:
-            send_message(chat_id, clean_response(reply))
+
+        # Step 1: Mistral Vision se image analyze karo
+        mistral_text = solve_with_mistral_vision(img_base64, instruction)
+
+        if not mistral_text:
+            send_message(chat_id, "Image solve nahi ho payi. Text mein question likho!")
+            return
+
+        # Step 2: Check karo numerical hai ya theory
+        wolfram_result = None
+        if is_numerical(mistral_text):
+            wolfram_result = solve_with_wolfram(mistral_text)
+            logging.info(f"Wolfram (image): {wolfram_result[:100] if wolfram_result else 'None'}")
+
+        # Step 3: Cohere se final answer lo
+        if wolfram_result:
+            final_reply = solve_with_cohere(mistral_text, wolfram_result)
+        else:
+            final_reply = mistral_text  # Mistral ka answer hi use karo theory ke liye
+
+        if final_reply:
+            send_message(chat_id, clean_response(final_reply))
         else:
             send_message(chat_id, "Image solve nahi ho payi. Text mein question likho!")
     except Exception as e:
